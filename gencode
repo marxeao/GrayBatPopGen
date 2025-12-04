@@ -1,0 +1,154 @@
+## Evaluating quality of fastq files
+
+for SAMPLE in `cat $SAMPLELIST`; do 
+ 
+  fastqc $BASEDIR'/raw_fastq/'$SAMPLE$RAWFASTQSUFFIX1 -o $BASEDIR'/fastqc/' 
+  fastqc $BASEDIR'/raw_fastq/'$SAMPLE$RAWFASTQSUFFIX2 -o $BASEDIR'/fastqc/' 
+ 
+done 
+
+ 
+
+## Removing adapter sequences, if necessary
+
+for SAMPLE in `cat $SAMPLELIST`; do 
+  trim_galore --stringency 5 --length 40 --paired $SAMPLE$RAWFASTQSUFFIX1 $SAMPLE$RAWFASTQSUFFIX2 -o adapter_clipped 
+done 
+
+ 
+
+## indexing reference genome 
+
+bwa index -a bwtsw $REFERENCE $INDEX_PREFIX 
+samtools faidx $REFERENCE 
+java -Xmx16G -jar picard CreateSequenceDictionary R=$REFERENCE O=$INDEX_PREFIX'.dict' 
+
+ 
+
+## map fastqs to reference genome, condense to bam file, then sort and filter for further processing 
+
+bwa mem -t 60 $REF $BASEDIR/adapter_clipped/forwardread.fastq $BASEDIR/adapter_clipped/reverseread.fastq > $BASEDIR/bam/sampleID_bwa.sam 
+samtools view -bS -F 4 $BASEDIR/bam/SAMPLEID_bwa.sam > $BASEDIR/bam/SAMPLEID_bwa.bam 
+samtools view -@ 60 -h -q 20 $BASEDIR/bam/SAMPLEID_bwa.bam | $SAMTOOLS view -buS | $SAMTOOLS sort -o $BASEDIR/bam/SAMPLEID_bwa_sorted.bam 
+# t/@ refers to number of threads
+# F means we should only keep true paired reads
+# h indicates we want a header
+ 
+
+## fixing mate information  
+
+for SAMPLEBAM in cat $SAMPLELIST; do java -jar picard FixMateInformation  
+I=$BASEDIR'/bam/'$SAMPLEBAM'_bwa_sorted.bam'  
+O=$BASEDIR'/bam/'$SAMPLEBAM'_bwa_sorted_fixedmate.bam'  
+done 
+
+## adding or replacing read group names
+
+for SAMPLEBAM in cat $SAMPLELIST; do 
+
+java -jar picard AddOrReplaceReadGroups
+I=$BASEDIR'/bam/'$SAMPLEBAM'_bwa_sorted_fixedmate.bam'  
+O=$BASEDIR'/bam/'$SAMPLEBAM'_bwa_sorted_fixedmate_RG.bam'  
+R=$REFERENCE  
+RGLB=lib1  
+RGPL=illumina  
+RGPU=unit1  
+RGSM=$SAMPLE  
+CREATE_INDEX=True  
+VALIDATION_STRINGENCY=LENIENT 
+
+Done 
+
+ 
+## merging files from different runs
+
+samtools merge -o MYGR-02_S73_merged_bwa_sorted.bam MYGR-02_S73_L005_bwa_sorted.bam MYGR-02_S73_L006_bwa_sorted.bam MYGR-02_S73_L007_bwa_sorted.bam 
+
+ 
+
+## deduplicating reads 
+
+for SAMPLEBAM in cat $BAMLIST; do 
+
+java -Xmx60g -jar $PICARD MarkDuplicates I=$BASEDIR'/bam/'$SAMPLEBAM'_bwa_sorted.bam' O=$BASEDIR'/bam/'$SAMPLEBAM'_bwa_'$REFNAME'_sorted_dedup.bam' M=$BASEDIR'/bam/'$SAMPLEBAM'_bwa_'$REFNAME'_sorted_dupstat.txt' VALIDATION_STRINGENCY=SILENT REMOVE_DUPLICATES=true 
+  
+done 
+
+ 
+
+#realigning indels
+
+for SAMPLEBAM in cat $SAMPLELIST; do echo $BASEDIR'/bam/'$SAMPLEBAM'_bwa_NewRef_sorted_fixedmate_RG_dedup.bam' >> $BAMLIST done 
+
+cd $BASEDIR/bam/ 
+
+for SAMPLEBAM in `cat $BAMLIST`; do 
+
+    samtools index $SAMPLEBAM 
+
+Done 
+
+java -Xmx120G -jar $GATK  
+-T RealignerTargetCreator  
+-R $REFERENCE  
+-I $BAMLIST  
+-o $BASEDIR'/bwa_bam/all_samples_for_indel_realigner.intervals'  
+-drf BadMate 
+ 
+java -Xmx120G -jar $GATK  
+-T IndelRealigner  
+-R $REFERENCE  
+-I $BAMLIST  
+-targetIntervals $BASEDIR'/bwa_bam/all_samples_for_indel_realigner.intervals'  
+--consensusDeterminationModel USE_READS  
+--nWayOut _realigned.bam 
+
+  
+
+## subsetting bam files for autosomes
+
+for SAMPLEBAM in cat $BAMLIST; do 
+
+samtools view -bh -@32 $BASEDIR'/bwa_bam/'$SAMPLEBAM'_merged_bwa_MyoVel_sorted_dedup_fixedmate_RG.bam' mMyoVel1.0.SUPER__1 mMyoVel1.0.SUPER__2 mMyoVel1.0.SUPER__3 mMyoVel1.0.SUPER__5 mMyoVel1.0.SUPER__6 mMyoVel1.0.SUPER__7 mMyoVel1.0.SUPER__8 mMyoVel1.0.SUPER__9 mMyoVel1.0.SUPER__10 mMyoVel1.0.SUPER__11 mMyoVel1.0.SUPER__12 mMyoVel1.0.SUPER__13 mMyoVel1.0.SUPER__14 mMyoVel1.0.SUPER__15 mMyoVel1.0.SUPER__16 mMyoVel1.0.SUPER__17 mMyoVel1.0.SUPER__18 mMyoVel1.0.SUPER__19 mMyoVel1.0.SUPER__20 mMyoVel1.0.SUPER__21 mMyoVel1.0.SUPER__22 > $BASEDIR'/bwa_bam/'$SAMPLEBAM'_subset.bam' 
+samtools index $BASEDIR'/bwa_bam/'$SAMPLEBAM'_subset.bam'
+
+done 
+ 
+
+## calculating tajima's D, theta, pi, sfs 
+
+$ANGSD -bam $BASEDIR/sample_lists/subsetlist.txt -doSaf 1 -anc $REF -P 64 -out $BASEDIR/results/autograys -minMapQ 20 -minQ 20 -minInd 15 -setMinDepth 5 -setMaxDepth 60 -doCounts 1 -GL 2 -doMajorMinor 1 
+#/media/user/16TB/Programs/angsd/angsd/misc/realSFS $BASEDIR/results/autograys.saf.idx -P 24 -fold 1 > $BASEDIR/results/autograys.sfs 
+# /media/user/16TB/Programs/angsd/angsd/misc/realSFS saf2theta $BASEDIR/results/autograys.saf.idx -sfs $BASEDIR/results/autograys.sfs -outname $BASEDIR/results/autograys 
+# /media/user/16TB/Programs/angsd/angsd/misc/thetaStat do_stat $BASEDIR/results/autograys.thetas.idx -win 50000 -step 10000  -outnames $BASEDIR/results/autograys.thetasWindow.gz 
+ 
+
+
+## admixture calculations with ngs admix 
+
+#subsetting to number of reads
+for SAMPLEBAM in cat $BAMLIST; do 
+
+samtools view -h -b -L $BEDFILE $BASEDIR'/bwa_bam/'$SAMPLEBAM'_subset.bam' > $BASEDIR'/bwa_bam/'$SAMPLEBAM'_subset_admix.bam' 
+
+done 
+
+# calculate genotype likelihood in beagle format 
+$ANGSD -P 16 -GL 2 -out $BASEDIR/results/admix/genolike -nThreads 10 -doGlf 2 -doMajorMinor 1 -SNP_pval 1e-6 -doMaf 1 -minMapQ 20 -minQ 20 -minInd 10 -bam $BASEDIR/sample_lists/admixsubsetbams.txt 
+
+# calc clusters by K and seed
+/media/user/16TB/Programs/angsd/angsd/misc/NGSadmix -likes $BASEDIR/results/admix/genolike.beagle.gz -printInfo 1 -K 0 -seed $SEED -P 16 -o $BASEDIR/results/admix/seed$SEED/genolikek0 -minMaf 0.05 
+
+
+## admixture and inbreeding coeffients with pcangsd
+#getting gl file
+$ANGSD -P 16 -GL 2 -out $BASEDIR/results/admix/GrayGlf2 -nThreads 10 -doGlf 2 -doMajorMinor 1 -SNP_pval 1e-6 -doMaf 1 -minMapQ 20 -minQ 20 -minInd 10 -bam $BASEDIR/sample_lists/admixsubsetbams.txt  
+
+#activate conda, then
+pcangsd --beagle $BASEDIR/results/admix/genolike.beagle.gz --out $BASEDIR/results/admix/pcangsd  ---inbreed-sites --inbreed-samples --admix --selection --threads 32 --sites-save –maf 0.1 --iter 500 
+
+ 
+
+ 
+
+ 
