@@ -149,6 +149,23 @@ pcangsd --beagle $BASEDIR/results/admix/genolike.beagle.gz --out $BASEDIR/result
 
  
 
+## GONE Ne prep
+#make vcf
+$BCFTOOLS mpileup -a AD,DP,SP -Ou -f $REF -b $BAMLIST | $BCFTOOLS call -f GQ,GP -m -Oz --output $BASEDIR/results/FstNeVCF/ALL.vcf.gz
+$BCFTOOLS index $BASEDIR/results/FstNeVCF/ALL.vcf.gz
+# perform the filtering with vcftools
+$VCFTOOLS --gzvcf $BASEDIR/results/FstNeVCF/ALL.vcf.gz --remove-indels --maf 0.1 --max-missing 0.9 --minQ 20 --min-meanDP 7 --max-meanDP 60 --minDP 7 --maxDP 60 --recode --stdout | gzip -c > $BASEDIR/results/FstNeVCF/ALL.filtered.vcf.gz
+gzip -d $BASEDIR/results/FstNeVCF/ALL.filtered.vcf.gz
+
+$BCFTOOLS view $BASEDIR/results/FstNeVCF/ALL.filtered.vcf | vcfrandomsample -r 0.2 > $BASEDIR/results/FstNeVCF/ALL.filtered.subset.2.vcf
+
+plink --vcf $BASEDIR/results/FstNeVCF/ALL.filtered.subset.2.vcf --maf 0.05 --allow-extra-chr --recode --out $BASEDIR/results/FstNeVCF/plink
  
 
+## Heterozygosity 
+$VCFTOOLS --vcf $BASEDIR/results/FstNeVCF/ALL.filtered.vcf --het --out $BASEDIR/results/FstNeVCF/HandFst
+
+
+## Fst
+$VCFTOOLS --gzvcf $BASEDIR/results/FstNeVCF/ALL.filtered.vcf --weir-fst-pop $BASEDIR/sample_lists/cluster1.txt --weir-fst-pop $BASEDIR/sample_lists/cluster2.txt --out $BASEDIR/results/FstNeVCF/HandFst/FstK2
  
