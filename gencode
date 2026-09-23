@@ -117,7 +117,7 @@ done
 
 ## calculating tajima's D, theta, pi, sfs 
 
-$ANGSD -bam $BASEDIR/sample_lists/subsetlist.txt -doSaf 1 -anc $REF -P 64 -out $BASEDIR/results/autograys -minMapQ 20 -minQ 20 -minInd 15 -setMinDepth 5 -setMaxDepth 60 -doCounts 1 -GL 2 -doMajorMinor 1 
+$ANGSD -bam $BASEDIR/sample_lists/subsetlist.txt -doSaf 1 -anc $REF -P 64 -out $BASEDIR/results/autograys -minMapQ 20 -minQ 20 -minInd 18 -setMinDepthInd 5 -setMaxDepthInd 60 -doCounts 1 -GL 2 -doMajorMinor 1 
 #/media/user/16TB/Programs/angsd/angsd/misc/realSFS $BASEDIR/results/autograys.saf.idx -P 24 -fold 1 > $BASEDIR/results/autograys.sfs 
 # /media/user/16TB/Programs/angsd/angsd/misc/realSFS saf2theta $BASEDIR/results/autograys.saf.idx -sfs $BASEDIR/results/autograys.sfs -outname $BASEDIR/results/autograys 
 # /media/user/16TB/Programs/angsd/angsd/misc/thetaStat do_stat $BASEDIR/results/autograys.thetas.idx -win 50000 -step 10000  -outnames $BASEDIR/results/autograys.thetasWindow.gz 
